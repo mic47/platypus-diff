@@ -1,3 +1,7 @@
+use std::path::PathBuf;
+
+use clap::Parser;
+
 #[derive(Debug)]
 enum TokenType {
     WhiteSpace,
@@ -85,9 +89,15 @@ impl<'a> Iterator for TokenParser<'a> {
 // TODO: Eventually better parsing -- i.e. add BlockStart/BlockEnd for non-whitesace things
 // TODO: Add line and col numbers to tokens
 
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Cli {
+    file: PathBuf,
+}
+
 fn main() {
-    println!("Hello, world!");
-    let text = std::fs::read_to_string("src/main.rs").unwrap();
+    let cli = Cli::parse();
+    let text = std::fs::read_to_string(cli.file).unwrap();
     for token in TokenParser::parse(&text) {
         println!("{:?}", token)
     }
