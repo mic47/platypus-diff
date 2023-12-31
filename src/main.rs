@@ -1,6 +1,7 @@
 use std::{path::PathBuf, rc::Rc};
 
 use clap::Parser;
+use colored::Colorize;
 
 #[derive(Debug, PartialEq, Clone)]
 enum TokenType {
@@ -187,7 +188,14 @@ fn align<'a>(
                 let insert_left = (prev.0 + 1., &prev.1, AlignmentOperationType::InsertLeft);
                 let diag = &current[l_index - 1];
                 let mutation = (
-                    diag.0 + if l == r { 0. } else { 1. },
+                    diag.0
+                        + if l == r {
+                            0.
+                        } else if l.t == r.t {
+                            1.
+                        } else {
+                            100.
+                        },
                     &diag.1,
                     AlignmentOperationType::Mutation,
                 );
@@ -286,10 +294,11 @@ impl<'a> Alignment<'a, Token<'a, TokenType>> {
                     let right_text = right.text();
                     if left_text.to_lowercase() == right_text.to_lowercase() {
                         left_line.extend(left_text.chars().map(|_| ' '));
+                        right_line.extend(right_text.chars());
                     } else {
-                        left_line.extend(left_text.chars());
+                        left_line.extend(format!("{}", left_text.red()).chars());
+                        right_line.extend(format!("{}", right_text.green()).chars());
                     }
-                    right_line.extend(right_text.chars());
                     if left_text.len() < right_text.len() {
                         for _ in 0..(right_text.len() - left_text.len()) {
                             left_line.push(' ');
@@ -306,8 +315,8 @@ impl<'a> Alignment<'a, Token<'a, TokenType>> {
                         continue;
                     } else {
                         let text = left.text();
-                        left_line.extend(text.chars());
-                        right_line.extend(text.chars().map(|_| ' '));
+                        left_line.extend(text.chars().map(|_| ' '));
+                        right_line.extend(format!("{}", text.red().strikethrough()).chars());
                     }
                 }
                 AlignmentOperation::InsertRight { right } => {
@@ -331,7 +340,7 @@ impl<'a> Alignment<'a, Token<'a, TokenType>> {
                     } else {
                         let text = right.text();
                         left_line.extend(text.chars().map(|_| ' '));
-                        right_line.extend(text.chars());
+                        right_line.extend(format!("{}", text.green()).chars());
                     }
                 }
             }
