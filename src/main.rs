@@ -36,8 +36,12 @@ impl<'a, T> Token<'a, T> {
     }
 }
 impl<'a, T: PartialEq> Token<'a, T> {
-    pub fn insert_score(&self) -> f64 {
-        1.
+    pub fn insert_score(&self, previous_is_same: bool) -> f64 {
+        if previous_is_same {
+            0.3
+        } else {
+            0.7
+        }
     }
     pub fn mutation_score(&self, other: &Self) -> f64 {
         if self.t != other.t {
@@ -119,13 +123,6 @@ enum AlignmentOperation<T> {
     InsertRight { right: T },
 }
 
-#[derive(Debug)]
-enum AlignmentOperationType {
-    Mutation,
-    InsertLeft,
-    InsertRight,
-}
-
 #[derive(Debug, Clone)]
 enum PathList<T> {
     End,
@@ -156,91 +153,159 @@ impl<T: Clone> PathList<T> {
     }
 }
 
+struct AlignmentData<'a> {
+    score: f64,
+    path: Rc<PathList<AlignmentOperation<&'a Token<'a, TokenType>>>>,
+}
+
+impl<'a> AlignmentData<'a> {
+    pub fn new() -> Self {
+        Self {
+            score: 0.,
+            path: Rc::new(PathList::End),
+        }
+    }
+    pub fn unreachable() -> Self {
+        Self {
+            score: f64::INFINITY,
+            path: Rc::new(PathList::End),
+        }
+    }
+}
+
+struct AlignmentState<'a> {
+    last_was_mutation: AlignmentData<'a>,
+    last_was_insert_left: AlignmentData<'a>,
+    last_was_insert_right: AlignmentData<'a>,
+}
+
+impl<'a> AlignmentState<'a> {
+    pub fn pick_best(
+        &self,
+        payload: AlignmentOperation<&'a Token<'a, TokenType>>,
+        mutation_score: f64,
+        insert_left_score: f64,
+        insert_right_score: f64,
+    ) -> AlignmentData<'a> {
+        let (score, previous) = if insert_left_score < insert_right_score {
+            if insert_left_score < mutation_score {
+                (insert_left_score, self.last_was_insert_left.path.clone())
+            } else {
+                (mutation_score, self.last_was_mutation.path.clone())
+            }
+        } else {
+            if insert_right_score < mutation_score {
+                (insert_right_score, self.last_was_insert_right.path.clone())
+            } else {
+                (mutation_score, self.last_was_mutation.path.clone())
+            }
+        };
+        AlignmentData {
+            score,
+            path: Rc::new(PathList::Node { payload, previous }),
+        }
+    }
+
+    pub fn extract_best(self) -> AlignmentData<'a> {
+        if self.last_was_mutation.score < self.last_was_insert_left.score {
+            if self.last_was_mutation.score < self.last_was_insert_right.score {
+                self.last_was_mutation
+            } else {
+                self.last_was_insert_right
+            }
+        } else {
+            if self.last_was_insert_left.score < self.last_was_insert_right.score {
+                self.last_was_insert_left
+            } else {
+                self.last_was_insert_right
+            }
+        }
+    }
+
+    pub fn insert_left_score(&self, l: &'a Token<'a, TokenType>) -> AlignmentData<'a> {
+        let mutation_score = self.last_was_mutation.score + l.insert_score(false);
+        let insert_left_score = self.last_was_insert_left.score + l.insert_score(true);
+        let insert_right_score = self.last_was_insert_right.score + l.insert_score(false);
+        self.pick_best(
+            AlignmentOperation::InsertLeft { left: l },
+            mutation_score,
+            insert_left_score,
+            insert_right_score,
+        )
+    }
+
+    pub fn insert_right_score(&self, r: &'a Token<'a, TokenType>) -> AlignmentData<'a> {
+        let mutation_score = self.last_was_mutation.score + r.insert_score(false);
+        let insert_left_score = self.last_was_insert_left.score + r.insert_score(false);
+        let insert_right_score = self.last_was_insert_right.score + r.insert_score(true);
+        self.pick_best(
+            AlignmentOperation::InsertRight { right: r },
+            mutation_score,
+            insert_left_score,
+            insert_right_score,
+        )
+    }
+
+    pub fn mutation_score(
+        &self,
+        l: &'a Token<'a, TokenType>,
+        r: &'a Token<'a, TokenType>,
+    ) -> AlignmentData<'a> {
+        let s = l.mutation_score(r);
+        let mutation_score = self.last_was_mutation.score + s;
+        let insert_left_score = self.last_was_insert_left.score + s;
+        let insert_right_score = self.last_was_insert_right.score + s;
+        self.pick_best(
+            AlignmentOperation::Mutation { left: l, right: r },
+            mutation_score,
+            insert_left_score,
+            insert_right_score,
+        )
+    }
+}
+
+type AlignmentLineDS<'a> = Vec<AlignmentState<'a>>;
+
 fn align<'a>(
     left: &'a [Token<'a, TokenType>],
     right: &'a [Token<'a, TokenType>],
 ) -> Alignment<'a, Token<'a, TokenType>> {
     let result_path = {
-        let mut current: Vec<(
-            f64,
-            Rc<PathList<AlignmentOperation<&'a Token<'a, TokenType>>>>,
-        )> = Vec::with_capacity(left.len() + 1);
-        current.push((0.0, Rc::new(PathList::End)));
+        let mut current: AlignmentLineDS<'a> = Vec::with_capacity(left.len() + 1);
+        current.push(AlignmentState {
+            last_was_mutation: AlignmentData::new(),
+            last_was_insert_left: AlignmentData::unreachable(),
+            last_was_insert_right: AlignmentData::unreachable(),
+        });
         for l in left.iter() {
             let prev = current.last().unwrap();
-            current.push((
-                prev.0 + l.insert_score(),
-                Rc::new(PathList::Node {
-                    payload: AlignmentOperation::InsertLeft { left: l },
-                    previous: prev.1.clone(),
-                }),
-            ))
+            current.push(AlignmentState {
+                last_was_mutation: AlignmentData::unreachable(),
+                last_was_insert_left: prev.insert_left_score(l),
+                last_was_insert_right: AlignmentData::unreachable(),
+            })
         }
         let mut next = Vec::with_capacity(left.len() + 1);
         for r in right.iter() {
             let prev = &current[0];
-            next.push((
-                prev.0 + r.insert_score(),
-                Rc::new(PathList::Node {
-                    payload: AlignmentOperation::InsertRight { right: r },
-                    previous: prev.1.clone(),
-                }),
-            ));
+            next.push(AlignmentState {
+                last_was_mutation: AlignmentData::unreachable(),
+                last_was_insert_left: AlignmentData::unreachable(),
+                last_was_insert_right: prev.insert_right_score(r),
+            });
             for (l_index, l) in left.iter().enumerate() {
                 let l_index = l_index + 1;
-                let insert_right = (
-                    current[l_index].0 + r.insert_score(),
-                    &current[l_index].1,
-                    AlignmentOperationType::InsertRight,
-                );
-                let prev = next.last().unwrap();
-                let insert_left = (
-                    prev.0 + l.insert_score(),
-                    &prev.1,
-                    AlignmentOperationType::InsertLeft,
-                );
-                let diag = &current[l_index - 1];
-                let mutation = (
-                    diag.0 + l.mutation_score(r),
-                    &diag.1,
-                    AlignmentOperationType::Mutation,
-                );
-                let best = if mutation.0 < insert_right.0 {
-                    if mutation.0 < insert_left.0 {
-                        mutation
-                    } else {
-                        insert_left
-                    }
-                } else {
-                    if insert_right.0 < insert_left.0 {
-                        insert_right
-                    } else {
-                        insert_left
-                    }
-                };
-                next.push((
-                    best.0,
-                    Rc::new(PathList::Node {
-                        payload: match best.2 {
-                            AlignmentOperationType::Mutation => {
-                                AlignmentOperation::Mutation { left: l, right: r }
-                            }
-                            AlignmentOperationType::InsertLeft => {
-                                AlignmentOperation::InsertLeft { left: l }
-                            }
-                            AlignmentOperationType::InsertRight => {
-                                AlignmentOperation::InsertRight { right: r }
-                            }
-                        },
-                        previous: best.1.clone(),
-                    }),
-                ));
+                next.push(AlignmentState {
+                    last_was_mutation: current[l_index - 1].mutation_score(l, r),
+                    last_was_insert_left: next[l_index - 1].insert_left_score(l),
+                    last_was_insert_right: current[l_index].insert_right_score(r),
+                });
             }
 
             std::mem::swap(&mut current, &mut next);
             next.clear()
         }
-        current.pop().unwrap().1
+        current.pop().unwrap().extract_best().path
     };
     Alignment {
         operations: Rc::try_unwrap(result_path)
