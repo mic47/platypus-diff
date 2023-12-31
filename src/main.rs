@@ -229,9 +229,7 @@ fn align<'a>(
         current.pop().unwrap().1
     };
     Alignment {
-        left_tokens: left,
-        right_tokens: right,
-        alignment: Rc::try_unwrap(result_path)
+        operations: Rc::try_unwrap(result_path)
             .unwrap_or_else(|x| {
                 eprintln!("More than 1 reference!");
                 (*x).clone()
@@ -241,9 +239,7 @@ fn align<'a>(
 }
 
 pub struct Alignment<'a, T> {
-    left_tokens: &'a [T],
-    right_tokens: &'a [T],
-    alignment: Vec<AlignmentOperation<&'a T>>,
+    operations: Vec<AlignmentOperation<&'a T>>,
 }
 
 impl<T> AlignmentOperation<T> {
@@ -264,14 +260,93 @@ impl<T> AlignmentOperation<T> {
 }
 
 impl<'a> Alignment<'a, Token<'a, TokenType>> {
+    pub fn pretty(&self) {
+        let mut left_line = String::new();
+        let mut right_line = String::new();
+        let flush = |left_line: &mut String, right_line: &mut String| {
+            // TODO: add colors indicating what was added and what not.
+            if left_line != right_line {
+                if left_line.chars().any(|x| !x.is_whitespace()) {
+                    println!("- {}", left_line);
+                }
+                if right_line.chars().any(|x| !x.is_whitespace()) {
+                    println!("+ {}", right_line);
+                }
+            } else {
+                println!("  {}", right_line);
+            }
+            left_line.clear();
+            right_line.clear();
+        };
+        for operation in self.operations.iter() {
+            match operation {
+                AlignmentOperation::Mutation { left, right } => {
+                    // TODO: assuming here that newlines are
+                    let left_text = left.text();
+                    let right_text = right.text();
+                    if left_text.to_lowercase() == right_text.to_lowercase() {
+                        left_line.extend(left_text.chars().map(|_| ' '));
+                    } else {
+                        left_line.extend(left_text.chars());
+                    }
+                    right_line.extend(right_text.chars());
+                    if left_text.len() < right_text.len() {
+                        for _ in 0..(right_text.len() - left_text.len()) {
+                            left_line.push(' ');
+                        }
+                    } else {
+                        for _ in 0..(left_text.len() - right_text.len()) {
+                            right_line.push(' ');
+                        }
+                    }
+                }
+                AlignmentOperation::InsertLeft { left } => {
+                    if left.t == TokenType::WhiteSpace {
+                        // Ignoring whitespace
+                        continue;
+                    } else {
+                        let text = left.text();
+                        left_line.extend(text.chars());
+                        right_line.extend(text.chars().map(|_| ' '));
+                    }
+                }
+                AlignmentOperation::InsertRight { right } => {
+                    if right.t == TokenType::WhiteSpace {
+                        // TODO: handle whitespace
+                        let whitespace = right.text();
+                        if whitespace.contains('\n') {
+                            let mut whitespace = whitespace.split('\n');
+                            let first = whitespace.next().unwrap();
+                            left_line.extend(first.chars());
+                            right_line.extend(first.chars());
+                            for space in whitespace {
+                                flush(&mut left_line, &mut right_line);
+                                left_line.extend(space.chars());
+                                right_line.extend(space.chars());
+                            }
+                        } else {
+                            left_line.extend(whitespace.chars());
+                            right_line.extend(whitespace.chars());
+                        }
+                    } else {
+                        let text = right.text();
+                        left_line.extend(text.chars().map(|_| ' '));
+                        right_line.extend(text.chars());
+                    }
+                }
+            }
+        }
+        flush(&mut left_line, &mut right_line);
+    }
 
     pub fn add_tokens(
         &mut self,
-        left: &'a[Token<'a, TokenType>],
-        right: &'a[Token<'a, TokenType>],
+        left: &'a [Token<'a, TokenType>],
+        right: &'a [Token<'a, TokenType>],
     ) {
-        let mut old_alignment = Vec::with_capacity(self.alignment.len() + left.len() + right.len());
-        std::mem::swap(&mut old_alignment, &mut self.alignment);
+        let mut old_alignment =
+            Vec::with_capacity(self.operations.len() + left.len() + right.len());
+        std::mem::swap(&mut old_alignment, &mut self.operations);
         let mut left = left.iter().peekable();
         let mut right = right.iter().peekable();
         let mut left_position = None;
@@ -286,7 +361,7 @@ impl<'a> Alignment<'a, Token<'a, TokenType>> {
                     .unwrap_or(false)
                 {
                     left.next().map(|left| {
-                        self.alignment
+                        self.operations
                             .push(AlignmentOperation::InsertLeft { left: &left })
                     });
                 }
@@ -299,16 +374,16 @@ impl<'a> Alignment<'a, Token<'a, TokenType>> {
                     .unwrap_or(false)
                 {
                     right.next().map(|right| {
-                        self.alignment
+                        self.operations
                             .push(AlignmentOperation::InsertRight { right: &right })
                     });
                 }
             }
-            self.alignment.push(a);
+            self.operations.push(a);
         }
-        self.alignment
+        self.operations
             .extend(left.map(|left| AlignmentOperation::InsertLeft { left }));
-        self.alignment
+        self.operations
             .extend(right.map(|right| AlignmentOperation::InsertRight { right }));
     }
 }
@@ -331,7 +406,5 @@ fn main() {
     // TODO: removal of whitespace tokens should be implementation detail of align?
     let mut alignment = align(&left_tokens, &right_tokens);
     alignment.add_tokens(&left_whitespaces, &right_whitespaces);
-    for operation in alignment.alignment.into_iter() {
-        println!("{:?}", operation)
-    }
+    alignment.pretty();
 }
