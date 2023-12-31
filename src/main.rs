@@ -79,7 +79,7 @@ enum CharType {
 fn char_type(c: char) -> CharType {
     if c.is_whitespace() {
         CharType::WhiteSpace
-    } else if c.is_alphanumeric() || c == ' ' {
+    } else if c.is_alphanumeric() || c == '_' {
         CharType::Word
     } else {
         CharType::Other
@@ -316,8 +316,7 @@ impl<'a> Alignment<'a, Token<'a, TokenType>> {
                 }
                 AlignmentOperation::InsertLeft { left } => {
                     if left.t == TokenType::WhiteSpace {
-                        // Ignoring whitespace
-                        continue;
+                        // Ignoring whitespace for left
                     } else {
                         let text = left.text();
                         left_line.extend(text.chars().map(|_| ' '));
