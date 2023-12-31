@@ -35,6 +35,18 @@ impl<'a, T> Token<'a, T> {
         self.source.get(self.start..self.end).unwrap()
     }
 }
+impl<'a, T: PartialEq> Token<'a, T> {
+    pub fn mutation_score(&self, other: &Self) -> f64 {
+        if self.t != other.t {
+            return 100.;
+        }
+        if self.text().to_lowercase() == other.text().to_lowercase() {
+            return 0.;
+        } else {
+            return 1.;
+        }
+    }
+}
 
 impl<'a, T: PartialEq> PartialEq for Token<'a, T> {
     fn eq(&self, other: &Self) -> bool {
@@ -188,14 +200,7 @@ fn align<'a>(
                 let insert_left = (prev.0 + 1., &prev.1, AlignmentOperationType::InsertLeft);
                 let diag = &current[l_index - 1];
                 let mutation = (
-                    diag.0
-                        + if l == r {
-                            0.
-                        } else if l.t == r.t {
-                            1.
-                        } else {
-                            100.
-                        },
+                    diag.0 + l.mutation_score(r),
                     &diag.1,
                     AlignmentOperationType::Mutation,
                 );
