@@ -36,6 +36,9 @@ impl<'a, T> Token<'a, T> {
     }
 }
 impl<'a, T: PartialEq> Token<'a, T> {
+    pub fn insert_score(&self) -> f64 {
+        1.
+    }
     pub fn mutation_score(&self, other: &Self) -> f64 {
         if self.t != other.t {
             return 100.;
@@ -45,12 +48,6 @@ impl<'a, T: PartialEq> Token<'a, T> {
         } else {
             return 1.;
         }
-    }
-}
-
-impl<'a, T: PartialEq> PartialEq for Token<'a, T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.t == other.t && self.text() == other.text()
     }
 }
 
@@ -172,7 +169,7 @@ fn align<'a>(
         for l in left.iter() {
             let prev = current.last().unwrap();
             current.push((
-                prev.0 + 1.,
+                prev.0 + l.insert_score(),
                 Rc::new(PathList::Node {
                     payload: AlignmentOperation::InsertLeft { left: l },
                     previous: prev.1.clone(),
@@ -183,7 +180,7 @@ fn align<'a>(
         for r in right.iter() {
             let prev = &current[0];
             next.push((
-                prev.0 + 1.,
+                prev.0 + r.insert_score(),
                 Rc::new(PathList::Node {
                     payload: AlignmentOperation::InsertRight { right: r },
                     previous: prev.1.clone(),
@@ -192,12 +189,16 @@ fn align<'a>(
             for (l_index, l) in left.iter().enumerate() {
                 let l_index = l_index + 1;
                 let insert_right = (
-                    current[l_index].0 + 1.,
+                    current[l_index].0 + r.insert_score(),
                     &current[l_index].1,
                     AlignmentOperationType::InsertRight,
                 );
                 let prev = next.last().unwrap();
-                let insert_left = (prev.0 + 1., &prev.1, AlignmentOperationType::InsertLeft);
+                let insert_left = (
+                    prev.0 + l.insert_score(),
+                    &prev.1,
+                    AlignmentOperationType::InsertLeft,
+                );
                 let diag = &current[l_index - 1];
                 let mutation = (
                     diag.0 + l.mutation_score(r),
