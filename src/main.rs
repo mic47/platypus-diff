@@ -357,8 +357,9 @@ impl<'a> Alignment<'a, Token<'a, TokenType>> {
             left_line.clear();
             right_line.clear();
         };
+        let mut prev_was_space = true;
         for operation in self.operations.iter() {
-            match operation {
+            prev_was_space = match operation {
                 AlignmentOperation::Mutation { left, right } => {
                     // TODO: assuming here that newlines are
                     let left_text = left.text();
@@ -379,14 +380,21 @@ impl<'a> Alignment<'a, Token<'a, TokenType>> {
                             right_line.push(' ');
                         }
                     }
+                    false
                 }
                 AlignmentOperation::InsertLeft { left } => {
                     if left.t == TokenType::WhiteSpace {
                         // Ignoring whitespace for left
+                        if !prev_was_space {
+                            left_line.push(' ');
+                            right_line.extend(format!("{}", " ".red().strikethrough()).chars());
+                        }
+                        true
                     } else {
                         let text = left.text();
                         left_line.extend(text.chars().map(|_| ' '));
                         right_line.extend(format!("{}", text.red().strikethrough()).chars());
+                        false
                     }
                 }
                 AlignmentOperation::InsertRight { right } => {
@@ -407,10 +415,12 @@ impl<'a> Alignment<'a, Token<'a, TokenType>> {
                             left_line.extend(whitespace.chars());
                             right_line.extend(whitespace.chars());
                         }
+                        true
                     } else {
                         let text = right.text();
                         left_line.extend(text.chars().map(|_| ' '));
                         right_line.extend(format!("{}", text.green()).chars());
+                        false
                     }
                 }
             }
@@ -432,19 +442,6 @@ impl<'a> Alignment<'a, Token<'a, TokenType>> {
         let mut right_position = None;
         old_alignment.reverse();
         while let Some(a) = old_alignment.pop() {
-            left_position = a.left().cloned().or(left_position);
-            if let Some(left_position) = left_position {
-                while left
-                    .peek()
-                    .map(|p| p.start < left_position.start)
-                    .unwrap_or(false)
-                {
-                    left.next().map(|left| {
-                        self.operations
-                            .push(AlignmentOperation::InsertLeft { left: &left })
-                    });
-                }
-            }
             right_position = a.right().cloned().or(right_position);
             if let Some(right_position) = right_position {
                 while right
@@ -458,12 +455,25 @@ impl<'a> Alignment<'a, Token<'a, TokenType>> {
                     });
                 }
             }
+            left_position = a.left().cloned().or(left_position);
+            if let Some(left_position) = left_position {
+                while left
+                    .peek()
+                    .map(|p| p.start < left_position.start)
+                    .unwrap_or(false)
+                {
+                    left.next().map(|left| {
+                        self.operations
+                            .push(AlignmentOperation::InsertLeft { left: &left })
+                    });
+                }
+            }
             self.operations.push(a);
         }
         self.operations
-            .extend(left.map(|left| AlignmentOperation::InsertLeft { left }));
-        self.operations
             .extend(right.map(|right| AlignmentOperation::InsertRight { right }));
+        self.operations
+            .extend(left.map(|left| AlignmentOperation::InsertLeft { left }));
     }
 }
 
