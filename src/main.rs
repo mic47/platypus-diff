@@ -1,4 +1,4 @@
-use std::{path::PathBuf, rc::Rc};
+use std::{collections::VecDeque, path::PathBuf, rc::Rc};
 
 use clap::Parser;
 use colored::Colorize;
@@ -8,6 +8,8 @@ enum TokenType {
     WhiteSpace,
     SpecialCharacter,
     Word,
+    BlockStart(usize),
+    BlockEnd(usize),
 }
 
 #[derive(Clone)]
@@ -35,22 +37,38 @@ impl<'a, T> Token<'a, T> {
         self.source.get(self.start..self.end).unwrap()
     }
 }
-impl<'a, T: PartialEq> Token<'a, T> {
+impl<'a> Token<'a, TokenType> {
     pub fn insert_score(&self, previous_is_same: bool) -> f64 {
+        let add = match self.t {
+            TokenType::BlockEnd(_indent) => 1.,
+            _ => 0.0,
+        };
         if previous_is_same {
-            0.3
+            0.3 + add
         } else {
-            0.7
+            0.7 + add
         }
     }
     pub fn mutation_score(&self, other: &Self) -> f64 {
         if self.t != other.t {
             return 100.;
         }
-        if self.text().to_lowercase() == other.text().to_lowercase() {
-            return 0.;
-        } else {
-            return 1.;
+        match self.t {
+            TokenType::BlockStart(indent) | TokenType::BlockEnd(indent) => match other.t {
+                TokenType::BlockStart(o_indent) | TokenType::BlockEnd(o_indent) => {
+                    indent.abs_diff(o_indent) as f64
+                }
+                _ => {
+                    panic!("This is impossible");
+                }
+            },
+            TokenType::WhiteSpace | TokenType::SpecialCharacter | TokenType::Word => {
+                if self.text().to_lowercase() == other.text().to_lowercase() {
+                    return 0.;
+                } else {
+                    return 1.;
+                }
+            }
         }
     }
 }
@@ -59,6 +77,8 @@ impl<'a, T: PartialEq> Token<'a, T> {
 struct TokenParser<'a> {
     source: &'a str,
     position: usize,
+    next_tokens: VecDeque<Token<'a, TokenType>>,
+    prev_indentation: usize,
 }
 
 impl<'a> TokenParser<'a> {
@@ -66,6 +86,8 @@ impl<'a> TokenParser<'a> {
         TokenParser {
             source: text,
             position: 0,
+            next_tokens: VecDeque::new(),
+            prev_indentation: 0,
         }
     }
 }
@@ -90,6 +112,10 @@ fn char_type(c: char) -> CharType {
 impl<'a> Iterator for TokenParser<'a> {
     type Item = Token<'a, TokenType>;
     fn next(&mut self) -> Option<Self::Item> {
+        if let Some(t) = self.next_tokens.pop_front() {
+            println!("{:?}", t);
+            return Some(t);
+        }
         let rest_of_text = self.source.split_at(self.position).1;
         let c_type = char_type(rest_of_text.chars().next()?);
         let len = rest_of_text
@@ -108,6 +134,27 @@ impl<'a> Iterator for TokenParser<'a> {
             },
         };
         self.position += len;
+        if c_type == CharType::WhiteSpace {
+            let whitespace_text = self.source.get(self.position - len..self.position).unwrap();
+            let current_indentation = if whitespace_text.contains('\n') {
+                whitespace_text.split('\n').last().unwrap().len()
+            } else {
+                self.prev_indentation
+            };
+            if current_indentation != self.prev_indentation {
+                self.next_tokens.push_back(Token {
+                    source: self.source,
+                    start: self.position,
+                    end: self.position,
+                    t: if current_indentation < self.prev_indentation {
+                        TokenType::BlockEnd(self.prev_indentation)
+                    } else {
+                        TokenType::BlockStart(current_indentation)
+                    },
+                });
+                self.prev_indentation = current_indentation;
+            }
+        }
         Some(token)
     }
 }
@@ -495,5 +542,8 @@ fn main() {
     // TODO: removal of whitespace tokens should be implementation detail of align?
     let mut alignment = align(&left_tokens, &right_tokens);
     alignment.add_tokens(&left_whitespaces, &right_whitespaces);
+    for op in alignment.operations.iter() {
+        println!("{:?}", op);
+    }
     alignment.pretty();
 }
