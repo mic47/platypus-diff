@@ -12,24 +12,12 @@ enum TokenType {
     BlockEnd(usize),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Token<'a, T> {
     text: &'a str,
     start: usize,
-    end: usize,
     // TODO: should this be a metadata, or even not in this type?
     t: T,
-}
-
-impl<'a, T: std::fmt::Debug> std::fmt::Debug for Token<'a, T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Token")
-            .field("text", &self.text)
-            .field("start", &self.start)
-            .field("end", &self.end)
-            .field("t", &self.t)
-            .finish()
-    }
 }
 
 impl<'a> Token<'a, TokenType> {
@@ -123,7 +111,6 @@ impl<'a> Iterator for TokenParser<'a> {
         let token = Token {
             text: self.source.get(start..end).unwrap(), // This should never fail
             start,
-            end,
             t: match c_type {
                 CharType::WhiteSpace => TokenType::WhiteSpace,
                 CharType::Word => TokenType::Word,
@@ -142,7 +129,6 @@ impl<'a> Iterator for TokenParser<'a> {
                 self.next_tokens.push_back(Token {
                     text: self.source.get(self.position..self.position).unwrap(), // This should never fail
                     start: self.position,
-                    end: self.position,
                     t: if current_indentation < self.prev_indentation {
                         TokenType::BlockEnd(self.prev_indentation)
                     } else {
