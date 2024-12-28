@@ -14,7 +14,7 @@ enum TokenType {
 
 #[derive(Clone)]
 struct Token<'a, T> {
-    source: &'a str,
+    text: &'a str,
     start: usize,
     end: usize,
     // TODO: should this be a metadata, or even not in this type?
@@ -24,7 +24,7 @@ struct Token<'a, T> {
 impl<'a, T: std::fmt::Debug> std::fmt::Debug for Token<'a, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Token")
-            .field("text", &self.text())
+            .field("text", &self.text)
             .field("start", &self.start)
             .field("end", &self.end)
             .field("t", &self.t)
@@ -32,11 +32,6 @@ impl<'a, T: std::fmt::Debug> std::fmt::Debug for Token<'a, T> {
     }
 }
 
-impl<'a, T> Token<'a, T> {
-    pub fn text(&self) -> &'a str {
-        self.source.get(self.start..self.end).unwrap()
-    }
-}
 impl<'a> Token<'a, TokenType> {
     pub fn insert_score(&self, previous_is_same: bool) -> f64 {
         let add = match self.t {
@@ -63,7 +58,7 @@ impl<'a> Token<'a, TokenType> {
                 }
             },
             TokenType::WhiteSpace | TokenType::SpecialCharacter | TokenType::Word => {
-                if self.text().to_lowercase() == other.text().to_lowercase() {
+                if self.text.to_lowercase() == other.text.to_lowercase() {
                     return 0.;
                 } else {
                     return 1.;
@@ -123,10 +118,12 @@ impl<'a> Iterator for TokenParser<'a> {
             .take_while(|x| char_type(*x) == c_type)
             .map(|x| x.len_utf8())
             .sum::<usize>();
+        let start = self.position;
+        let end = self.position + len;
         let token = Token {
-            source: self.source,
-            start: self.position,
-            end: self.position + len,
+            text: self.source.get(start..end).unwrap(), // This should never fail
+            start,
+            end,
             t: match c_type {
                 CharType::WhiteSpace => TokenType::WhiteSpace,
                 CharType::Word => TokenType::Word,
@@ -143,7 +140,7 @@ impl<'a> Iterator for TokenParser<'a> {
             };
             if current_indentation != self.prev_indentation {
                 self.next_tokens.push_back(Token {
-                    source: self.source,
+                    text: self.source.get(self.position..self.position).unwrap(), // This should never fail
                     start: self.position,
                     end: self.position,
                     t: if current_indentation < self.prev_indentation {
@@ -409,8 +406,8 @@ impl<'a> Alignment<'a, Token<'a, TokenType>> {
             prev_was_space = match operation {
                 AlignmentOperation::Mutation { left, right } => {
                     // TODO: assuming here that newlines are
-                    let left_text = left.text();
-                    let right_text = right.text();
+                    let left_text = left.text;
+                    let right_text = right.text;
                     if left_text.to_lowercase() == right_text.to_lowercase() {
                         left_line.extend(left_text.chars().map(|_| ' '));
                         right_line.extend(right_text.chars());
@@ -438,7 +435,7 @@ impl<'a> Alignment<'a, Token<'a, TokenType>> {
                         }
                         true
                     } else {
-                        let text = left.text();
+                        let text = left.text;
                         left_line.extend(text.chars().map(|_| ' '));
                         right_line.extend(format!("{}", text.red().strikethrough()).chars());
                         false
@@ -447,7 +444,7 @@ impl<'a> Alignment<'a, Token<'a, TokenType>> {
                 AlignmentOperation::InsertRight { right } => {
                     if right.t == TokenType::WhiteSpace {
                         // TODO: handle whitespace
-                        let whitespace = right.text();
+                        let whitespace = right.text;
                         if whitespace.contains('\n') {
                             let mut whitespace = whitespace.split('\n');
                             let first = whitespace.next().unwrap();
@@ -464,7 +461,7 @@ impl<'a> Alignment<'a, Token<'a, TokenType>> {
                         }
                         true
                     } else {
-                        let text = right.text();
+                        let text = right.text;
                         left_line.extend(text.chars().map(|_| ' '));
                         right_line.extend(format!("{}", text.green()).chars());
                         false
