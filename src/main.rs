@@ -14,7 +14,9 @@ enum TokenType {
 
 #[derive(Clone, Debug)]
 struct Token<'a, T> {
+    /// Text of the token
     text: &'a str,
+    /// Index of the start of the token in the original text. End is defined by length of text.
     start: usize,
     // TODO: should this be a metadata, or even not in this type?
     t: T,
@@ -39,6 +41,8 @@ impl<'a> Token<'a, TokenType> {
         match self.t {
             TokenType::BlockStart(indent) | TokenType::BlockEnd(indent) => match other.t {
                 TokenType::BlockStart(o_indent) | TokenType::BlockEnd(o_indent) => {
+                    // TODO: this is weird scoring. Indenting block should not penalize further
+                    // indentation changes in that block, only the start / end.
                     indent.abs_diff(o_indent) as f64
                 }
                 _ => {
@@ -47,9 +51,9 @@ impl<'a> Token<'a, TokenType> {
             },
             TokenType::WhiteSpace | TokenType::SpecialCharacter | TokenType::Word => {
                 if self.text.to_lowercase() == other.text.to_lowercase() {
-                    return 0.;
+                    0.
                 } else {
-                    return 1.;
+                    1.
                 }
             }
         }
@@ -163,7 +167,7 @@ enum PathList<T> {
 }
 
 impl<T: Clone> PathList<T> {
-    pub fn extract_path<'a>(self: Self) -> Vec<T> {
+    pub fn extract_path(self) -> Vec<T> {
         let mut out = vec![];
         let mut current = self;
         loop {
@@ -210,6 +214,7 @@ struct AlignmentState<'a> {
 }
 
 impl<'a> AlignmentState<'a> {
+    #[allow(clippy::collapsible_else_if)]
     pub fn pick_best(
         &self,
         payload: AlignmentOperation<&'a Token<'a, TokenType>>,
@@ -236,6 +241,7 @@ impl<'a> AlignmentState<'a> {
         }
     }
 
+    #[allow(clippy::collapsible_else_if)]
     pub fn extract_best(self) -> AlignmentData<'a> {
         if self.last_was_mutation.score < self.last_was_insert_left.score {
             if self.last_was_mutation.score < self.last_was_insert_right.score {
@@ -396,7 +402,7 @@ impl<'a> Alignment<'a, Token<'a, TokenType>> {
                     let right_text = right.text;
                     if left_text.to_lowercase() == right_text.to_lowercase() {
                         left_line.extend(left_text.chars().map(|_| ' '));
-                        right_line.extend(right_text.chars());
+                        right_line.push_str(right_text);
                     } else {
                         left_line.extend(format!("{}", left_text.red()).chars());
                         right_line.extend(format!("{}", right_text.green()).chars());
@@ -434,16 +440,16 @@ impl<'a> Alignment<'a, Token<'a, TokenType>> {
                         if whitespace.contains('\n') {
                             let mut whitespace = whitespace.split('\n');
                             let first = whitespace.next().unwrap();
-                            left_line.extend(first.chars());
-                            right_line.extend(first.chars());
+                            left_line.push_str(first);
+                            right_line.push_str(first);
                             for space in whitespace {
                                 flush(&mut left_line, &mut right_line);
-                                left_line.extend(space.chars());
-                                right_line.extend(space.chars());
+                                left_line.push_str(space);
+                                right_line.push_str(space);
                             }
                         } else {
-                            left_line.extend(whitespace.chars());
-                            right_line.extend(whitespace.chars());
+                            left_line.push_str(whitespace);
+                            right_line.push_str(whitespace);
                         }
                         true
                     } else {
@@ -479,10 +485,10 @@ impl<'a> Alignment<'a, Token<'a, TokenType>> {
                     .map(|p| p.start < right_position.start)
                     .unwrap_or(false)
                 {
-                    right.next().map(|right| {
+                    if let Some(right) = right.next() {
                         self.operations
-                            .push(AlignmentOperation::InsertRight { right: &right })
-                    });
+                            .push(AlignmentOperation::InsertRight { right })
+                    };
                 }
             }
             left_position = a.left().cloned().or(left_position);
@@ -492,10 +498,10 @@ impl<'a> Alignment<'a, Token<'a, TokenType>> {
                     .map(|p| p.start < left_position.start)
                     .unwrap_or(false)
                 {
-                    left.next().map(|left| {
+                    if let Some(left) = left.next() {
                         self.operations
-                            .push(AlignmentOperation::InsertLeft { left: &left })
-                    });
+                            .push(AlignmentOperation::InsertLeft { left })
+                    };
                 }
             }
             self.operations.push(a);
