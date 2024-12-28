@@ -113,7 +113,7 @@ impl<'a> Iterator for TokenParser<'a> {
     type Item = Token<'a, TokenType>;
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(t) = self.next_tokens.pop_front() {
-            println!("{:?}", t);
+            //println!("{:?}", t);
             return Some(t);
         }
         let rest_of_text = self.source.split_at(self.position).1;
@@ -527,6 +527,8 @@ impl<'a> Alignment<'a, Token<'a, TokenType>> {
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
+    #[arg(short, long)]
+    debug: bool,
     left: PathBuf,
     right: PathBuf,
 }
@@ -542,8 +544,10 @@ fn main() {
     // TODO: removal of whitespace tokens should be implementation detail of align?
     let mut alignment = align(&left_tokens, &right_tokens);
     alignment.add_tokens(&left_whitespaces, &right_whitespaces);
-    for op in alignment.operations.iter() {
-        println!("{:?}", op);
+    if cli.debug {
+        for op in alignment.operations.iter() {
+            println!("{:?}", op);
+        }
     }
     alignment.pretty();
 }
