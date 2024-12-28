@@ -83,6 +83,7 @@ impl<'a> TokenParser<'a> {
 enum CharType {
     WhiteSpace,
     Word,
+    BlockChar,
     Other,
 }
 
@@ -91,6 +92,8 @@ fn char_type(c: char) -> CharType {
         CharType::WhiteSpace
     } else if c.is_alphanumeric() || c == '_' {
         CharType::Word
+    } else if c == '(' || c == ')' || c == '[' || c == ']' || c == '{' || c == '}' {
+        CharType::BlockChar
     } else {
         CharType::Other
     }
@@ -105,11 +108,19 @@ impl<'a> Iterator for TokenParser<'a> {
         }
         let rest_of_text = self.source.split_at(self.position).1;
         let c_type = char_type(rest_of_text.chars().next()?);
-        let len = rest_of_text
-            .chars()
-            .take_while(|x| char_type(*x) == c_type)
-            .map(|x| x.len_utf8())
-            .sum::<usize>();
+        let len = if c_type == CharType::BlockChar {
+            rest_of_text
+                .chars()
+                .next()
+                .map(|x| x.len_utf8())
+                .unwrap_or(0)
+        } else {
+            rest_of_text
+                .chars()
+                .take_while(|x| char_type(*x) == c_type)
+                .map(|x| x.len_utf8())
+                .sum::<usize>()
+        };
         let start = self.position;
         let end = self.position + len;
         let token = Token {
@@ -119,6 +130,7 @@ impl<'a> Iterator for TokenParser<'a> {
                 CharType::WhiteSpace => TokenType::WhiteSpace,
                 CharType::Word => TokenType::Word,
                 CharType::Other => TokenType::SpecialCharacter,
+                CharType::BlockChar => TokenType::SpecialCharacter,
             },
         };
         self.position += len;
