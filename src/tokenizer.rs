@@ -14,9 +14,9 @@ pub enum TokenType {
 #[derive(Clone, Debug)]
 pub struct Token<'a, T> {
     /// Text of the token
-    pub text: &'a str,
+    text: &'a str,
     /// Index of the start of the token in the original text. End is defined by length of text.
-    pub start: usize,
+    start: usize,
     // TODO: should this be a metadata, or even not in this type?
     pub t: T,
 }

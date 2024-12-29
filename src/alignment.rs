@@ -328,7 +328,7 @@ impl<'a, T: Token> Alignment<'a, T> {
         flush(&mut left_line, &mut right_line);
     }
 
-    pub fn add_tokens(&mut self, left: &'a [T], right: &'a [T]) {
+    pub fn interleave_tokens(mut self, left: &'a [T], right: &'a [T]) -> Self {
         let mut old_alignment =
             Vec::with_capacity(self.operations.len() + left.len() + right.len());
         std::mem::swap(&mut old_alignment, &mut self.operations);
@@ -370,5 +370,6 @@ impl<'a, T: Token> Alignment<'a, T> {
             .extend(right.map(|right| AlignmentOperation::InsertRight { right }));
         self.operations
             .extend(left.map(|left| AlignmentOperation::InsertLeft { left }));
+        self
     }
 }

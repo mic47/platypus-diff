@@ -8,7 +8,7 @@ use clap::Parser;
 
 use alignment::align;
 use tokenizer::{Token, TokenParser, TokenType};
-use types::AlignmentScoring;
+use types::{AlignmentScoring, Token as _};
 
 // TODO: Insert BlockStart/BlockEnd for whitespace
 // TODO: Eventually better parsing -- i.e. add BlockStart/BlockEnd for non-whitesace things
@@ -51,7 +51,7 @@ impl<'a> AlignmentScoring<Token<'a, TokenType>> for AffineScoring {
                 }
             },
             TokenType::WhiteSpace | TokenType::SpecialCharacter | TokenType::Word => {
-                if left.text.to_lowercase() == right.text.to_lowercase() {
+                if left.text().to_lowercase() == right.text().to_lowercase() {
                     0.
                 } else {
                     self.mismatched_text_penalty
@@ -75,9 +75,9 @@ fn main() {
     let left_text = std::fs::read_to_string(cli.left).unwrap();
     let right_text = std::fs::read_to_string(cli.right).unwrap();
     let (left_tokens, left_whitespaces): (Vec<_>, Vec<_>) =
-        TokenParser::parse(&left_text).partition(|x| x.t != TokenType::WhiteSpace);
+        TokenParser::parse(&left_text).partition(|x| !x.is_whitespace());
     let (right_tokens, right_whitespaces): (Vec<_>, Vec<_>) =
-        TokenParser::parse(&right_text).partition(|x| x.t != TokenType::WhiteSpace);
+        TokenParser::parse(&right_text).partition(|x| !x.is_whitespace());
     // TODO: removal of whitespace tokens should be implementation detail of align?
     let scoring = AffineScoring {
         start_insert: 0.7,
@@ -86,8 +86,8 @@ fn main() {
         mismatched_type_penalty: 100.,
         mismatched_text_penalty: 1.,
     };
-    let mut alignment = align(&scoring, &left_tokens, &right_tokens);
-    alignment.add_tokens(&left_whitespaces, &right_whitespaces);
+    let alignment = align(&scoring, &left_tokens, &right_tokens)
+        .interleave_tokens(&left_whitespaces, &right_whitespaces);
     if cli.debug {
         for op in alignment.operations.iter() {
             println!("{:?}", op);
