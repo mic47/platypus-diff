@@ -265,7 +265,7 @@ impl<'a, T: Token> Alignment<'a, T> {
                     // TODO: assuming here that newlines are
                     let left_text = left.text();
                     let right_text = right.text();
-                    if left_text.to_lowercase() == right_text.to_lowercase() {
+                    if left_text == right_text {
                         left_line.extend(left_text.chars().map(|_| ' '));
                         right_line.push_str(right_text);
                     } else {

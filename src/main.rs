@@ -20,6 +20,7 @@ struct AffineScoring {
     pub block_end_insert_penalty: f64,
     pub mismatched_type_penalty: f64,
     pub mismatched_text_penalty: f64,
+    pub mismatched_case_penalty: f64,
 }
 
 impl<'a> AlignmentScoring<Token<'a, TokenType>> for AffineScoring {
@@ -51,8 +52,10 @@ impl<'a> AlignmentScoring<Token<'a, TokenType>> for AffineScoring {
                 }
             },
             TokenType::WhiteSpace | TokenType::SpecialCharacter | TokenType::Word => {
-                if left.text().to_lowercase() == right.text().to_lowercase() {
+                if left.text() == right.text() {
                     0.
+                } else if left.text().to_lowercase() == right.text().to_lowercase() {
+                    self.mismatched_case_penalty
                 } else {
                     self.mismatched_text_penalty
                 }
@@ -85,6 +88,7 @@ fn main() {
         block_end_insert_penalty: 1.,
         mismatched_type_penalty: 100.,
         mismatched_text_penalty: 1.,
+        mismatched_case_penalty: 0.01,
     };
     let alignment = align(&scoring, &left_tokens, &right_tokens)
         .interleave_tokens(&left_whitespaces, &right_whitespaces);
