@@ -17,6 +17,7 @@ Add this into .gitconfig
 
 ## TODO
 
+- [ ] Fix showing of what line changed, and which is added / removed.
 - [ ] Show limited context by default.
 - [ ] Integration with neovim? (if possible).
 - [ ] Make it faster on almost identical documents (i.e. when showing diff).

@@ -239,25 +239,47 @@ impl<T> AlignmentOperation<T> {
     }
 }
 
+enum OutputLine {
+    Same {
+        line: String,
+    },
+    Change {
+        left: Option<String>,
+        right: Option<String>,
+    },
+}
+
 impl<'a, T: Token> Alignment<'a, T> {
-    pub fn pretty(&self) {
+    fn output_lines(&self) -> Vec<OutputLine> {
+        let mut output = vec![];
+
         let mut left_line = String::new();
         let mut right_line = String::new();
-        let flush = |left_line: &mut String, right_line: &mut String| {
-            // TODO: add colors indicating what was added and what not.
-            if left_line != right_line {
-                if left_line.chars().any(|x| !x.is_whitespace()) {
-                    println!("- {}", left_line);
+        let flush =
+            |left_line: &mut String, right_line: &mut String, output: &mut Vec<OutputLine>| {
+                // TODO: this is not entirely correct -- everything is treated as insertion
+                // TODO: add colors indicating what was added and what not.
+                if left_line != right_line {
+                    output.push(OutputLine::Change {
+                        left: if left_line.chars().any(|x| !x.is_whitespace()) {
+                            Some(left_line.clone())
+                        } else {
+                            None
+                        },
+                        right: if right_line.chars().any(|x| !x.is_whitespace()) {
+                            Some(right_line.clone())
+                        } else {
+                            None
+                        },
+                    });
+                } else {
+                    output.push(OutputLine::Same {
+                        line: right_line.clone(),
+                    });
                 }
-                if right_line.chars().any(|x| !x.is_whitespace()) {
-                    println!("+ {}", right_line);
-                }
-            } else {
-                println!("  {}", right_line);
-            }
-            left_line.clear();
-            right_line.clear();
-        };
+                left_line.clear();
+                right_line.clear();
+            };
         let mut prev_was_space = true;
         for operation in self.operations.iter() {
             prev_was_space = match operation {
@@ -308,7 +330,7 @@ impl<'a, T: Token> Alignment<'a, T> {
                             left_line.push_str(first);
                             right_line.push_str(first);
                             for space in whitespace {
-                                flush(&mut left_line, &mut right_line);
+                                flush(&mut left_line, &mut right_line, &mut output);
                                 left_line.push_str(space);
                                 right_line.push_str(space);
                             }
@@ -326,7 +348,25 @@ impl<'a, T: Token> Alignment<'a, T> {
                 }
             }
         }
-        flush(&mut left_line, &mut right_line);
+        flush(&mut left_line, &mut right_line, &mut output);
+        output
+    }
+    pub fn pretty(&self) {
+        for line in self.output_lines() {
+            match line {
+                OutputLine::Same { line } => {
+                    println!("  {}", line);
+                }
+                OutputLine::Change { left, right } => {
+                    if let Some(left) = left {
+                        println!("- {}", &left);
+                    }
+                    if let Some(right) = right {
+                        println!("+ {}", &right);
+                    }
+                }
+            }
+        }
     }
 
     pub fn interleave_tokens(mut self, left: &'a [T], right: &'a [T]) -> Self {
