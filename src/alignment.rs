@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use colored::Colorize;
 
-use crate::tokenizer::{Token, TokenType};
+use crate::types::{AlignmentScoring, Token};
 
 #[derive(Debug, Clone)]
 pub enum AlignmentOperation<T> {
@@ -41,12 +41,12 @@ impl<T: Clone> PathList<T> {
     }
 }
 
-struct AlignmentData<'a> {
+struct AlignmentData<'a, T> {
     score: f64,
-    path: Rc<PathList<AlignmentOperation<&'a Token<'a, TokenType>>>>,
+    path: Rc<PathList<AlignmentOperation<&'a T>>>,
 }
 
-impl<'a> AlignmentData<'a> {
+impl<'a, T> AlignmentData<'a, T> {
     pub fn new() -> Self {
         Self {
             score: 0.,
@@ -61,21 +61,21 @@ impl<'a> AlignmentData<'a> {
     }
 }
 
-struct AlignmentState<'a> {
-    last_was_mutation: AlignmentData<'a>,
-    last_was_insert_left: AlignmentData<'a>,
-    last_was_insert_right: AlignmentData<'a>,
+struct AlignmentState<'a, T> {
+    last_was_mutation: AlignmentData<'a, T>,
+    last_was_insert_left: AlignmentData<'a, T>,
+    last_was_insert_right: AlignmentData<'a, T>,
 }
 
-impl<'a> AlignmentState<'a> {
+impl<'a, T> AlignmentState<'a, T> {
     #[allow(clippy::collapsible_else_if)]
     pub fn pick_best(
         &self,
-        payload: AlignmentOperation<&'a Token<'a, TokenType>>,
+        payload: AlignmentOperation<&'a T>,
         mutation_score: f64,
         insert_left_score: f64,
         insert_right_score: f64,
-    ) -> AlignmentData<'a> {
+    ) -> AlignmentData<'a, T> {
         let (score, previous) = if insert_left_score < insert_right_score {
             if insert_left_score < mutation_score {
                 (insert_left_score, self.last_was_insert_left.path.clone())
@@ -96,7 +96,7 @@ impl<'a> AlignmentState<'a> {
     }
 
     #[allow(clippy::collapsible_else_if)]
-    pub fn extract_best(self) -> AlignmentData<'a> {
+    pub fn extract_best(self) -> AlignmentData<'a, T> {
         if self.last_was_mutation.score < self.last_was_insert_left.score {
             if self.last_was_mutation.score < self.last_was_insert_right.score {
                 self.last_was_mutation
@@ -112,10 +112,14 @@ impl<'a> AlignmentState<'a> {
         }
     }
 
-    pub fn insert_left_score(&self, l: &'a Token<'a, TokenType>) -> AlignmentData<'a> {
-        let mutation_score = self.last_was_mutation.score + l.insert_score(false);
-        let insert_left_score = self.last_was_insert_left.score + l.insert_score(true);
-        let insert_right_score = self.last_was_insert_right.score + l.insert_score(false);
+    pub fn insert_left_score<S: AlignmentScoring<T>>(
+        &self,
+        scoring: &S,
+        l: &'a T,
+    ) -> AlignmentData<'a, T> {
+        let mutation_score = self.last_was_mutation.score + scoring.insert_score(l, false);
+        let insert_left_score = self.last_was_insert_left.score + scoring.insert_score(l, true);
+        let insert_right_score = self.last_was_insert_right.score + scoring.insert_score(l, false);
         self.pick_best(
             AlignmentOperation::InsertLeft { left: l },
             mutation_score,
@@ -124,10 +128,14 @@ impl<'a> AlignmentState<'a> {
         )
     }
 
-    pub fn insert_right_score(&self, r: &'a Token<'a, TokenType>) -> AlignmentData<'a> {
-        let mutation_score = self.last_was_mutation.score + r.insert_score(false);
-        let insert_left_score = self.last_was_insert_left.score + r.insert_score(false);
-        let insert_right_score = self.last_was_insert_right.score + r.insert_score(true);
+    pub fn insert_right_score<S: AlignmentScoring<T>>(
+        &self,
+        scoring: &S,
+        r: &'a T,
+    ) -> AlignmentData<'a, T> {
+        let mutation_score = self.last_was_mutation.score + scoring.insert_score(r, false);
+        let insert_left_score = self.last_was_insert_left.score + scoring.insert_score(r, false);
+        let insert_right_score = self.last_was_insert_right.score + scoring.insert_score(r, true);
         self.pick_best(
             AlignmentOperation::InsertRight { right: r },
             mutation_score,
@@ -136,12 +144,13 @@ impl<'a> AlignmentState<'a> {
         )
     }
 
-    pub fn mutation_score(
+    pub fn mutation_score<S: AlignmentScoring<T>>(
         &self,
-        l: &'a Token<'a, TokenType>,
-        r: &'a Token<'a, TokenType>,
-    ) -> AlignmentData<'a> {
-        let s = l.mutation_score(r);
+        scoring: &S,
+        l: &'a T,
+        r: &'a T,
+    ) -> AlignmentData<'a, T> {
+        let s = scoring.mutation_score(l, r);
         let mutation_score = self.last_was_mutation.score + s;
         let insert_left_score = self.last_was_insert_left.score + s;
         let insert_right_score = self.last_was_insert_right.score + s;
@@ -154,14 +163,15 @@ impl<'a> AlignmentState<'a> {
     }
 }
 
-type AlignmentLineDS<'a> = Vec<AlignmentState<'a>>;
+type AlignmentLineDS<'a, T> = Vec<AlignmentState<'a, T>>;
 
-pub fn align<'a>(
-    left: &'a [Token<'a, TokenType>],
-    right: &'a [Token<'a, TokenType>],
-) -> Alignment<'a, Token<'a, TokenType>> {
+pub fn align<'a, T, S: AlignmentScoring<T>>(
+    scoring: &S,
+    left: &'a [T],
+    right: &'a [T],
+) -> Alignment<'a, T> {
     let result_path = {
-        let mut current: AlignmentLineDS<'a> = Vec::with_capacity(left.len() + 1);
+        let mut current: AlignmentLineDS<'a, T> = Vec::with_capacity(left.len() + 1);
         current.push(AlignmentState {
             last_was_mutation: AlignmentData::new(),
             last_was_insert_left: AlignmentData::unreachable(),
@@ -171,7 +181,7 @@ pub fn align<'a>(
             let prev = current.last().unwrap();
             current.push(AlignmentState {
                 last_was_mutation: AlignmentData::unreachable(),
-                last_was_insert_left: prev.insert_left_score(l),
+                last_was_insert_left: prev.insert_left_score(scoring, l),
                 last_was_insert_right: AlignmentData::unreachable(),
             })
         }
@@ -181,14 +191,14 @@ pub fn align<'a>(
             next.push(AlignmentState {
                 last_was_mutation: AlignmentData::unreachable(),
                 last_was_insert_left: AlignmentData::unreachable(),
-                last_was_insert_right: prev.insert_right_score(r),
+                last_was_insert_right: prev.insert_right_score(scoring, r),
             });
             for (l_index, l) in left.iter().enumerate() {
                 let l_index = l_index + 1;
                 next.push(AlignmentState {
-                    last_was_mutation: current[l_index - 1].mutation_score(l, r),
-                    last_was_insert_left: next[l_index - 1].insert_left_score(l),
-                    last_was_insert_right: current[l_index].insert_right_score(r),
+                    last_was_mutation: current[l_index - 1].mutation_score(scoring, l, r),
+                    last_was_insert_left: next[l_index - 1].insert_left_score(scoring, l),
+                    last_was_insert_right: current[l_index].insert_right_score(scoring, r),
                 });
             }
 
@@ -228,7 +238,7 @@ impl<T> AlignmentOperation<T> {
     }
 }
 
-impl<'a> Alignment<'a, Token<'a, TokenType>> {
+impl<'a, T: Token> Alignment<'a, T> {
     pub fn pretty(&self) {
         let mut left_line = String::new();
         let mut right_line = String::new();
@@ -252,8 +262,8 @@ impl<'a> Alignment<'a, Token<'a, TokenType>> {
             prev_was_space = match operation {
                 AlignmentOperation::Mutation { left, right } => {
                     // TODO: assuming here that newlines are
-                    let left_text = left.text;
-                    let right_text = right.text;
+                    let left_text = left.text();
+                    let right_text = right.text();
                     if left_text.to_lowercase() == right_text.to_lowercase() {
                         left_line.extend(left_text.chars().map(|_| ' '));
                         right_line.push_str(right_text);
@@ -273,7 +283,7 @@ impl<'a> Alignment<'a, Token<'a, TokenType>> {
                     false
                 }
                 AlignmentOperation::InsertLeft { left } => {
-                    if left.t == TokenType::WhiteSpace {
+                    if left.is_whitespace() {
                         // Ignoring whitespace for left
                         if !prev_was_space {
                             left_line.push(' ');
@@ -281,16 +291,16 @@ impl<'a> Alignment<'a, Token<'a, TokenType>> {
                         }
                         true
                     } else {
-                        let text = left.text;
+                        let text = left.text();
                         left_line.extend(text.chars().map(|_| ' '));
                         right_line.extend(format!("{}", text.red().strikethrough()).chars());
                         false
                     }
                 }
                 AlignmentOperation::InsertRight { right } => {
-                    if right.t == TokenType::WhiteSpace {
+                    if right.is_whitespace() {
                         // TODO: handle whitespace
-                        let whitespace = right.text;
+                        let whitespace = right.text();
                         if whitespace.contains('\n') {
                             let mut whitespace = whitespace.split('\n');
                             let first = whitespace.next().unwrap();
@@ -307,7 +317,7 @@ impl<'a> Alignment<'a, Token<'a, TokenType>> {
                         }
                         true
                     } else {
-                        let text = right.text;
+                        let text = right.text();
                         left_line.extend(text.chars().map(|_| ' '));
                         right_line.extend(format!("{}", text.green()).chars());
                         false
@@ -318,11 +328,7 @@ impl<'a> Alignment<'a, Token<'a, TokenType>> {
         flush(&mut left_line, &mut right_line);
     }
 
-    pub fn add_tokens(
-        &mut self,
-        left: &'a [Token<'a, TokenType>],
-        right: &'a [Token<'a, TokenType>],
-    ) {
+    pub fn add_tokens(&mut self, left: &'a [T], right: &'a [T]) {
         let mut old_alignment =
             Vec::with_capacity(self.operations.len() + left.len() + right.len());
         std::mem::swap(&mut old_alignment, &mut self.operations);
@@ -336,7 +342,7 @@ impl<'a> Alignment<'a, Token<'a, TokenType>> {
             if let Some(right_position) = right_position {
                 while right
                     .peek()
-                    .map(|p| p.start < right_position.start)
+                    .map(|p| p.start() < right_position.start())
                     .unwrap_or(false)
                 {
                     if let Some(right) = right.next() {
@@ -349,7 +355,7 @@ impl<'a> Alignment<'a, Token<'a, TokenType>> {
             if let Some(left_position) = left_position {
                 while left
                     .peek()
-                    .map(|p| p.start < left_position.start)
+                    .map(|p| p.start() < left_position.start())
                     .unwrap_or(false)
                 {
                     if let Some(left) = left.next() {

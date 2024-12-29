@@ -1,5 +1,7 @@
 use std::collections::VecDeque;
 
+use crate::types::Token as TokenTrait;
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum TokenType {
     WhiteSpace,
@@ -19,41 +21,17 @@ pub struct Token<'a, T> {
     pub t: T,
 }
 
-impl<'a> Token<'a, TokenType> {
-    pub fn insert_score(&self, previous_is_same: bool) -> f64 {
-        let add = match self.t {
-            TokenType::BlockEnd(_indent) => 1.,
-            _ => 0.0,
-        };
-        if previous_is_same {
-            0.3 + add
-        } else {
-            0.7 + add
-        }
+impl<'a> TokenTrait for Token<'a, TokenType> {
+    fn text(&self) -> &str {
+        self.text
     }
-    pub fn mutation_score(&self, other: &Self) -> f64 {
-        if self.t != other.t {
-            return 100.;
-        }
-        match self.t {
-            TokenType::BlockStart(indent) | TokenType::BlockEnd(indent) => match other.t {
-                TokenType::BlockStart(o_indent) | TokenType::BlockEnd(o_indent) => {
-                    // TODO: this is weird scoring. Indenting block should not penalize further
-                    // indentation changes in that block, only the start / end.
-                    indent.abs_diff(o_indent) as f64
-                }
-                _ => {
-                    panic!("This is impossible");
-                }
-            },
-            TokenType::WhiteSpace | TokenType::SpecialCharacter | TokenType::Word => {
-                if self.text.to_lowercase() == other.text.to_lowercase() {
-                    0.
-                } else {
-                    1.
-                }
-            }
-        }
+
+    fn start(&self) -> usize {
+        self.start
+    }
+
+    fn is_whitespace(&self) -> bool {
+        self.t == TokenType::WhiteSpace
     }
 }
 
