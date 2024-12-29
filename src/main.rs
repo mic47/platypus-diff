@@ -89,9 +89,7 @@ fn main() {
     let alignment = align(&scoring, &left_tokens, &right_tokens)
         .interleave_tokens(&left_whitespaces, &right_whitespaces);
     if cli.debug {
-        for op in alignment.operations.iter() {
-            println!("{:?}", op);
-        }
+        println!("{:#?}", alignment);
     }
     alignment.pretty();
 }

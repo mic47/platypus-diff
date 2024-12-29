@@ -217,8 +217,9 @@ pub fn align<'a, T, S: AlignmentScoring<T>>(
     }
 }
 
+#[derive(Debug)]
 pub struct Alignment<'a, T> {
-    pub operations: Vec<AlignmentOperation<&'a T>>,
+    operations: Vec<AlignmentOperation<&'a T>>,
 }
 
 impl<T> AlignmentOperation<T> {
