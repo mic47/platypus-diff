@@ -317,20 +317,23 @@ impl DiffLineOutput {
     }
 
     pub fn insert_left(&mut self, text: &str) {
-        self.equal = false;
+        if text.chars().any(|x| !x.is_whitespace()) {
+            self.equal = false;
+        }
         self.left.extend(text.chars().map(|_| ' '));
         self.right
             .extend(format!("{}", text.red().strikethrough()).chars());
     }
 
     pub fn insert_right(&mut self, text: &str) {
-        self.equal = false;
+        if text.chars().any(|x| !x.is_whitespace()) {
+            self.equal = false;
+        }
         self.left.extend(text.chars().map(|_| ' '));
         self.right.extend(format!("{}", text.green()).chars());
     }
 
     pub fn insert_right_space(&mut self, text: &str) {
-        self.equal = false; // TODO?
         self.left.push_str(text);
         self.right.push_str(text);
     }
