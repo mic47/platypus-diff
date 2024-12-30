@@ -249,37 +249,100 @@ enum OutputLine {
     },
 }
 
+struct DiffLineOutput {
+    left: String,
+    right: String,
+    equal: bool,
+    out: Vec<OutputLine>,
+}
+
+impl DiffLineOutput {
+    pub fn new() -> Self {
+        let mut ret = Self {
+            left: String::new(),
+            right: String::new(),
+            equal: true,
+            out: Vec::new(),
+        };
+        ret.clear();
+        ret
+    }
+
+    fn clear(&mut self) {
+        self.left.clear();
+        self.right.clear();
+        self.equal = true;
+    }
+
+    pub fn flush(&mut self) {
+        if self.equal {
+            self.out.push(OutputLine::Same {
+                line: self.right.clone(),
+            })
+        } else {
+            self.out.push(OutputLine::Change {
+                left: if self.left.chars().any(|x| !x.is_whitespace()) {
+                    Some(self.left.clone())
+                } else {
+                    None
+                },
+                right: if self.right.chars().any(|x| !x.is_whitespace()) {
+                    Some(self.right.clone())
+                } else {
+                    None
+                },
+            });
+        }
+        self.clear();
+    }
+
+    pub fn add_same(&mut self, line: &str) {
+        self.left.extend(line.chars().map(|_| ' '));
+        self.right.push_str(line);
+    }
+
+    pub fn add_mutation(&mut self, left: &str, right: &str) {
+        self.equal = false;
+        self.left.extend(format!("{}", left.red()).chars());
+        self.right.extend(format!("{}", right.green()).chars());
+        if left.len() < right.len() {
+            for _ in 0..(right.len() - left.len()) {
+                self.left.push(' ');
+            }
+        } else {
+            for _ in 0..(left.len() - right.len()) {
+                self.right.push(' ');
+            }
+        }
+    }
+
+    pub fn insert_left(&mut self, text: &str) {
+        self.equal = false;
+        self.left.extend(text.chars().map(|_| ' '));
+        self.right
+            .extend(format!("{}", text.red().strikethrough()).chars());
+    }
+
+    pub fn insert_right(&mut self, text: &str) {
+        self.equal = false;
+        self.left.extend(text.chars().map(|_| ' '));
+        self.right.extend(format!("{}", text.green()).chars());
+    }
+
+    pub fn insert_right_space(&mut self, text: &str) {
+        self.equal = false; // TODO?
+        self.left.push_str(text);
+        self.right.push_str(text);
+    }
+
+    pub fn output(self) -> Vec<OutputLine> {
+        self.out
+    }
+}
+
 impl<'a, T: Token> Alignment<'a, T> {
     fn output_lines(&self) -> Vec<OutputLine> {
-        let mut output = vec![];
-
-        let mut left_line = String::new();
-        let mut right_line = String::new();
-        let flush =
-            |left_line: &mut String, right_line: &mut String, output: &mut Vec<OutputLine>| {
-                // TODO: this is not entirely correct -- everything is treated as insertion
-                // TODO: add colors indicating what was added and what not.
-                if left_line != right_line {
-                    output.push(OutputLine::Change {
-                        left: if left_line.chars().any(|x| !x.is_whitespace()) {
-                            Some(left_line.clone())
-                        } else {
-                            None
-                        },
-                        right: if right_line.chars().any(|x| !x.is_whitespace()) {
-                            Some(right_line.clone())
-                        } else {
-                            None
-                        },
-                    });
-                } else {
-                    output.push(OutputLine::Same {
-                        line: right_line.clone(),
-                    });
-                }
-                left_line.clear();
-                right_line.clear();
-            };
+        let mut output = DiffLineOutput::new();
         let mut prev_was_space = true;
         for operation in self.operations.iter() {
             prev_was_space = match operation {
@@ -288,20 +351,9 @@ impl<'a, T: Token> Alignment<'a, T> {
                     let left_text = left.text();
                     let right_text = right.text();
                     if left_text == right_text {
-                        left_line.extend(left_text.chars().map(|_| ' '));
-                        right_line.push_str(right_text);
+                        output.add_same(right_text);
                     } else {
-                        left_line.extend(format!("{}", left_text.red()).chars());
-                        right_line.extend(format!("{}", right_text.green()).chars());
-                    }
-                    if left_text.len() < right_text.len() {
-                        for _ in 0..(right_text.len() - left_text.len()) {
-                            left_line.push(' ');
-                        }
-                    } else {
-                        for _ in 0..(left_text.len() - right_text.len()) {
-                            right_line.push(' ');
-                        }
+                        output.add_mutation(left_text, right_text);
                     }
                     false
                 }
@@ -309,14 +361,11 @@ impl<'a, T: Token> Alignment<'a, T> {
                     if left.is_whitespace() {
                         // Ignoring whitespace for left
                         if !prev_was_space {
-                            left_line.push(' ');
-                            right_line.extend(format!("{}", " ".red().strikethrough()).chars());
+                            output.insert_left(" ")
                         }
                         true
                     } else {
-                        let text = left.text();
-                        left_line.extend(text.chars().map(|_| ' '));
-                        right_line.extend(format!("{}", text.red().strikethrough()).chars());
+                        output.insert_left(left.text());
                         false
                     }
                 }
@@ -327,29 +376,24 @@ impl<'a, T: Token> Alignment<'a, T> {
                         if whitespace.contains('\n') {
                             let mut whitespace = whitespace.split('\n');
                             let first = whitespace.next().unwrap();
-                            left_line.push_str(first);
-                            right_line.push_str(first);
+                            output.insert_right_space(first);
                             for space in whitespace {
-                                flush(&mut left_line, &mut right_line, &mut output);
-                                left_line.push_str(space);
-                                right_line.push_str(space);
+                                output.flush();
+                                output.insert_right_space(space);
                             }
                         } else {
-                            left_line.push_str(whitespace);
-                            right_line.push_str(whitespace);
+                            output.insert_right_space(whitespace);
                         }
                         true
                     } else {
-                        let text = right.text();
-                        left_line.extend(text.chars().map(|_| ' '));
-                        right_line.extend(format!("{}", text.green()).chars());
+                        output.insert_right(right.text());
                         false
                     }
                 }
             }
         }
-        flush(&mut left_line, &mut right_line, &mut output);
-        output
+        output.flush();
+        output.output()
     }
     pub fn pretty(&self) {
         for line in self.output_lines() {
